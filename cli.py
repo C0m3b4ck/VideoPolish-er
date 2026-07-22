@@ -102,6 +102,7 @@ Examples:
   %(prog)s --input video.mp4 --remove-silence --remove-stutters
   %(prog)s --input podcast.wav --model faster-whisper --language en
   %(prog)s --input interview.mp4 --silence-threshold -35 --min-silence-duration 300
+  %(prog)s --input video.mp4 --script original.srt --similarity-threshold 85
         """
     )
 
@@ -198,6 +199,19 @@ Examples:
         help="Enable verbose output"
     )
 
+    parser.add_argument(
+        "--script", "-s",
+        type=str,
+        help="Original script file for verification (SRT, VTT, ASS, TXT)"
+    )
+
+    parser.add_argument(
+        "--similarity-threshold",
+        type=float,
+        default=80.0,
+        help="Minimum similarity percentage to consider as valid (default: 80.0)"
+    )
+
     return parser.parse_args()
 
 
@@ -226,6 +240,200 @@ def create_output_directory(output_dir: str) -> bool:
     except OSError as e:
         print_error(f"Failed to create output directory: {e}")
         return False
+
+
+def validate_script_file(file_path: str) -> bool:
+    """Validate that script file exists and is supported."""
+    if not os.path.exists(file_path):
+        print_error(f"Script file not found: {file_path}")
+        return False
+
+    supported_extensions = ['.srt', '.vtt', '.ass', '.txt']
+    file_ext = os.path.splitext(file_path)[1].lower()
+
+    if file_ext not in supported_extensions:
+        print_error(f"Unsupported script format: {file_ext}")
+        print_info(f"Supported formats: {', '.join(supported_extensions)}")
+        return False
+
+    return True
+
+
+def parse_srt_file(file_path: str) -> str:
+    """Parse SRT file and extract text content."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Remove SRT numbering and timestamps
+    lines = content.strip().split('\n')
+    text_lines = []
+
+    for line in lines:
+        line = line.strip()
+        # Skip empty lines, numbers, and timestamp lines
+        if not line:
+            continue
+        if line.isdigit():
+            continue
+        if '-->' in line:
+            continue
+        # Remove HTML tags if present
+        clean_line = re.sub(r'<[^>]+>', '', line)
+        text_lines.append(clean_line)
+
+    return ' '.join(text_lines)
+
+
+def parse_vtt_file(file_path: str) -> str:
+    """Parse WebVTT file and extract text content."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Remove VTT header and metadata
+    lines = content.strip().split('\n')
+    text_lines = []
+    in_cues = False
+
+    for line in lines:
+        line = line.strip()
+        # Skip empty lines
+        if not line:
+            continue
+        # Skip WEBVTT header
+        if line.startswith('WEBVTT'):
+            continue
+        # Skip NOTE blocks
+        if line.startswith('NOTE'):
+            continue
+        # Check for timestamp lines
+        if '-->' in line:
+            in_cues = True
+            continue
+        # Skip cue identifiers (numbers or IDs)
+        if in_cues and (line.isdigit() or re.match(r'^[a-zA-Z0-9_-]+$', line)):
+            continue
+        # Remove HTML tags if present
+        clean_line = re.sub(r'<[^>]+>', '', line)
+        if clean_line:
+            text_lines.append(clean_line)
+
+    return ' '.join(text_lines)
+
+
+def parse_ass_file(file_path: str) -> str:
+    """Parse ASS file and extract text content."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    lines = content.strip().split('\n')
+    text_lines = []
+
+    for line in lines:
+        line = line.strip()
+        # Look for Dialogue lines
+        if line.startswith('Dialogue:'):
+            # Extract text after the last comma
+            parts = line.split(',')
+            if len(parts) >= 10:
+                text = ','.join(parts[9:])
+                # Remove ASS override tags like {\b1}, {\i0}, etc.
+                text = re.sub(r'\{[^}]+\}', '', text)
+                text = text.strip()
+                if text:
+                    text_lines.append(text)
+
+    return ' '.join(text_lines)
+
+
+def parse_txt_file(file_path: str) -> str:
+    """Parse plain text file."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return content.strip()
+
+
+def parse_script_file(file_path: str) -> str:
+    """Parse script file based on extension and extract text."""
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == '.srt':
+        return parse_srt_file(file_path)
+    elif ext == '.vtt':
+        return parse_vtt_file(file_path)
+    elif ext == '.ass':
+        return parse_ass_file(file_path)
+    elif ext == '.txt':
+        return parse_txt_file(file_path)
+    else:
+        print_error(f"Unsupported script format: {ext}")
+        return ""
+
+
+def extract_text_from_words(words: List[Dict]) -> str:
+    """Extract plain text from word list."""
+    return ' '.join(w.get("word", "").strip() for w in words)
+
+
+def normalize_text(text: str) -> str:
+    """Normalize text for comparison (lowercase, remove extra spaces)."""
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
+def calculate_similarity(text1: str, text2: str) -> float:
+    """Calculate similarity between two texts using SequenceMatcher."""
+    from difflib import SequenceMatcher
+
+    norm1 = normalize_text(text1)
+    norm2 = normalize_text(text2)
+
+    if not norm1 and not norm2:
+        return 100.0
+    if not norm1 or not norm2:
+        return 0.0
+
+    similarity = SequenceMatcher(None, norm1, norm2).ratio()
+    return similarity * 100
+
+
+def find_missing_words(original: str, processed: str) -> List[str]:
+    """Find words in original that are missing from processed."""
+    orig_words = set(normalize_text(original).split())
+    proc_words = set(normalize_text(processed).split())
+
+    missing = orig_words - proc_words
+    return sorted(missing)
+
+
+def verify_transcription(
+    original_script: str,
+    transcription: str,
+    threshold: float = 80.0
+) -> Tuple[bool, Dict]:
+    """
+    Verify transcription against original script.
+
+    Returns:
+        Tuple of (is_valid, stats_dict)
+    """
+    similarity = calculate_similarity(original_script, transcription)
+    missing_words = find_missing_words(original_script, transcription)
+
+    is_valid = similarity >= threshold
+
+    stats = {
+        "similarity": similarity,
+        "threshold": threshold,
+        "is_valid": is_valid,
+        "missing_words": missing_words,
+        "missing_count": len(missing_words),
+        "original_length": len(original_script.split()),
+        "transcription_length": len(transcription.split())
+    }
+
+    return is_valid, stats
 
 
 def remove_silence_from_audio(
@@ -898,6 +1106,7 @@ def main():
         "silence_stats": None,
         "stutter_stats": None,
         "transcription_stats": None,
+        "verification_stats": None,
         "processing_time": 0
     }
 
@@ -978,6 +1187,47 @@ def main():
         words_to_json(words, json_path, args.words_per_chunk)
         output_files.append(json_path)
 
+    # Step 5: Verify against original script if provided
+    if args.script:
+        print_info("\n=== Step 5: Verifying Against Original Script ===")
+
+        if not validate_script_file(args.script):
+            print_warning("Skipping verification due to invalid script file")
+        else:
+            # Parse original script
+            original_text = parse_script_file(args.script)
+            if original_text:
+                # Extract transcription text
+                transcription_text = extract_text_from_words(words)
+
+                # Verify
+                is_valid, verification_stats = verify_transcription(
+                    original_text,
+                    transcription_text,
+                    args.similarity_threshold
+                )
+
+                stats["verification_stats"] = verification_stats
+
+                # Print verification results
+                print_info(f"Similarity: {verification_stats['similarity']:.1f}% "
+                          f"(threshold: {verification_stats['threshold']:.1f}%)")
+
+                if is_valid:
+                    print_success("Verification PASSED - Transcription is consistent with original script")
+                else:
+                    print_warning("Verification FAILED - Possible content loss detected")
+
+                if verification_stats["missing_words"]:
+                    print_warning(f"Missing words: {', '.join(verification_stats['missing_words'][:20])}")
+                    if len(verification_stats["missing_words"]) > 20:
+                        print_info(f"  ... and {len(verification_stats['missing_words']) - 20} more")
+
+                print_info(f"Original script words: {verification_stats['original_length']}")
+                print_info(f"Transcription words: {verification_stats['transcription_length']}")
+            else:
+                print_warning("Could not parse script file")
+
     # Calculate final stats
     end_time = time.time()
     stats["processing_time"] = end_time - start_time
@@ -997,6 +1247,10 @@ def main():
 
     if stats["stutter_stats"]:
         print_info(f"Stutters removed: {stats['stutter_stats']['stutters_removed']}")
+
+    if stats["verification_stats"]:
+        print_info(f"Verification: {'PASSED' if stats['verification_stats']['is_valid'] else 'FAILED'} "
+                  f"({stats['verification_stats']['similarity']:.1f}%)")
 
     print_info(f"Words detected: {len(words)}")
     print_info(f"Processing time: {stats['processing_time']:.1f}s")

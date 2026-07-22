@@ -15,6 +15,7 @@ All models run 100% locally. No API keys, no tokens, no internet at runtime.
 - **Automatic silence removal** with configurable threshold and duration
 - **Stutter detection and removal** (uhm, uh, um, er, ah, hmm, etc.)
 - **Customizable stutter patterns** (add your own filler words)
+- **Verification against original script** (SRT, VTT, ASS, TXT) to detect accidental content removal
 - **Word-level timestamps** for caption generation
 - **SRT, VTT, ASS, and JSON** output formats
 - **Configurable words per caption chunk** (1-8 words)
@@ -95,6 +96,19 @@ chmod +x run.sh
 ./run.sh --input video.mp4 --remove-silence --remove-stutters
 ```
 
+### Verify Against Original Script
+
+```bash
+# Compare transcription against original script file
+python cli.py --input video.mp4 --script original.srt
+
+# With custom similarity threshold
+python cli.py --input video.mp4 --script original.srt --similarity-threshold 85
+
+# With all cleanup features
+python cli.py --input video.mp4 --remove-silence --remove-stutters --script original.vtt
+```
+
 ## CLI Example Output
 
 ```
@@ -126,6 +140,12 @@ Found 3 stutters: uhm, uh, um
 === Step 4: Generating Output Files ===
 ✓ SRT saved to ./output/video.srt (10 blocks)
 
+=== Step 5: Verifying Against Original Script ===
+Similarity: 95.2% (threshold: 80.0%)
+✓ Verification PASSED - Transcription is consistent with original script
+Original script words: 156
+Transcription words: 148
+
 ============================================================
 PROCESSING COMPLETE
 ============================================================
@@ -134,6 +154,7 @@ Model: faster-whisper
 Language: en
 Silence removed: 12.5s (25.0%)
 Stutters removed: 3
+Verification: PASSED (95.2%)
 Words detected: 28
 Processing time: 9.5s
 
@@ -161,6 +182,8 @@ Stats saved to ./output/video_stats.json
 | `--words-per-chunk` | Words per subtitle chunk | `3` |
 | `--device` | Device to use (auto, cuda, cpu) | `auto` |
 | `--verbose` | Enable verbose output | `false` |
+| `--script, -s` | Original script file for verification | `None` |
+| `--similarity-threshold` | Minimum similarity % for verification | `80.0` |
 
 ## Supported Models
 
@@ -200,9 +223,16 @@ VideoPolish-er/
 ├── cli.py                  # Main CLI tool
 ├── run.sh                  # Wrapper script to use Transcribix venv
 ├── test_cli.py             # Unit tests
+├── test_verification.py    # Verification feature tests
 ├── test_examples.sh        # Example usage tests
 ├── create_test_audio.py    # Create test audio files
 ├── requirements.txt        # Python dependencies
+├── pinokio.json            # Pinokio metadata
+├── pinokio.js              # Pinokio launcher UI
+├── install.js              # Pinokio install script
+├── start.js                # Pinokio start script
+├── update.js               # Pinokio update script
+├── reset.js                # Pinokio reset script
 └── README.md               # This file
 ```
 
@@ -211,6 +241,9 @@ VideoPolish-er/
 ```bash
 # Run unit tests
 python test_cli.py
+
+# Run verification feature tests
+python test_verification.py
 
 # Run example tests
 ./test_examples.sh
