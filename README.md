@@ -227,12 +227,6 @@ VideoPolish-er/
 ├── test_examples.sh        # Example usage tests
 ├── create_test_audio.py    # Create test audio files
 ├── requirements.txt        # Python dependencies
-├── pinokio.json            # Pinokio metadata
-├── pinokio.js              # Pinokio launcher UI
-├── install.js              # Pinokio install script
-├── start.js                # Pinokio start script
-├── update.js               # Pinokio update script
-├── reset.js                # Pinokio reset script
 └── README.md               # This file
 ```
 
