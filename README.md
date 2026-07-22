@@ -1,4 +1,4 @@
-# VideoPolish-er
+# VideoPolish-er <img src=https://github.com/C0m3b4ck/Pinokio-VideoPolish-er/blob/main/icon.png>
 
 A CLI tool for transcribing and cleaning up audio/video files with automatic noise removal and stutter detection.
 
