@@ -217,15 +217,21 @@ Examples:
 
 def validate_input_file(file_path: str) -> bool:
     """Validate that input file exists and is supported."""
-    if not os.path.exists(file_path):
-        print_error(f"File not found: {file_path}")
+    real_path = os.path.realpath(file_path)
+    if not os.path.exists(real_path):
+        print_error("File not found.")
+        return False
+
+    file_size_gb = os.path.getsize(real_path) / (1024**3)
+    if file_size_gb > 10:
+        print_error("File too large (>10GB).")
         return False
 
     supported_extensions = ['.mp4', '.wav', '.mp3', '.m4a', '.flac', '.ogg', '.mkv', '.avi', '.mov', '.webm']
-    file_ext = os.path.splitext(file_path)[1].lower()
+    file_ext = os.path.splitext(real_path)[1].lower()
 
     if file_ext not in supported_extensions:
-        print_error(f"Unsupported file format: {file_ext}")
+        print_error("Unsupported file format.")
         print_info(f"Supported formats: {', '.join(supported_extensions)}")
         return False
 
@@ -244,15 +250,16 @@ def create_output_directory(output_dir: str) -> bool:
 
 def validate_script_file(file_path: str) -> bool:
     """Validate that script file exists and is supported."""
-    if not os.path.exists(file_path):
-        print_error(f"Script file not found: {file_path}")
+    real_path = os.path.realpath(file_path)
+    if not os.path.exists(real_path):
+        print_error("Script file not found.")
         return False
 
     supported_extensions = ['.srt', '.vtt', '.ass', '.txt']
-    file_ext = os.path.splitext(file_path)[1].lower()
+    file_ext = os.path.splitext(real_path)[1].lower()
 
     if file_ext not in supported_extensions:
-        print_error(f"Unsupported script format: {file_ext}")
+        print_error("Unsupported script format.")
         print_info(f"Supported formats: {', '.join(supported_extensions)}")
         return False
 
@@ -497,7 +504,7 @@ def remove_silence_from_audio(
         return True, stats
 
     except Exception as e:
-        print_error(f"Failed to remove silence: {e}")
+        print_error("Failed to remove silence.")
         return False, {"error": str(e)}
 
 
@@ -602,7 +609,7 @@ def transcribe_audio(
             print_error(f"Unknown model: {model_name}")
             return []
     except Exception as e:
-        print_error(f"Transcription failed: {e}")
+        print_error("Transcription failed.")
         return []
 
 
