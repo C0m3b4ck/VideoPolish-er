@@ -9,6 +9,8 @@ with automatic noise removal and stutter detection.
 import argparse
 import os
 import sys
+import subprocess
+import shlex
 import time
 import json
 import re
@@ -103,6 +105,7 @@ Examples:
   %(prog)s --input podcast.wav --model faster-whisper --language en
   %(prog)s --input interview.mp4 --silence-threshold -35 --min-silence-duration 300
   %(prog)s --input video.mp4 --script original.srt --similarity-threshold 85
+  %(prog)s --input video.mp4 --format ass --burn
         """
     )
 
@@ -210,6 +213,12 @@ Examples:
         type=float,
         default=80.0,
         help="Minimum similarity percentage to consider as valid (default: 80.0)"
+    )
+
+    parser.add_argument(
+        "--burn",
+        action="store_true",
+        help="Burn subtitles into video using ffmpeg (requires ffmpeg installed)"
     )
 
     return parser.parse_args()
@@ -1085,6 +1094,49 @@ def words_to_json(words: List[Dict], output_path: str, words_per_group: int = 3)
     print_success(f"JSON saved to {output_path} ({len(groups)} groups)")
 
 
+def burn_subtitles_to_video(
+    video_path: str,
+    subtitle_path: str,
+    output_path: str,
+):
+    """Burn subtitles onto video using ffmpeg."""
+    if not os.path.isfile(video_path):
+        print_error(f"Video file not found: {video_path}")
+        return False
+    if not os.path.isfile(subtitle_path):
+        print_error(f"Subtitle file not found: {subtitle_path}")
+        return False
+
+    sub_path_quoted = shlex.quote(subtitle_path)
+    filter_str = f"subtitles={sub_path_quoted}"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", filter_str,
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    print_info("\nBurning subtitles into video...")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        print_error("ffmpeg timed out after 600 seconds")
+        return False
+    except FileNotFoundError:
+        print_error("ffmpeg not found. Please install ffmpeg.")
+        return False
+
+    if result.returncode != 0:
+        print_error("ffmpeg failed. Check that ffmpeg is installed and the video file is valid.")
+        return False
+
+    print_success(f"Video with burned subtitles saved to {output_path}")
+    return True
+
+
 def main():
     """Main function."""
     args = parse_arguments()
@@ -1194,9 +1246,32 @@ def main():
         words_to_json(words, json_path, args.words_per_chunk)
         output_files.append(json_path)
 
-    # Step 5: Verify against original script if provided
+    # Step 5: Burn subtitles into video if requested
+    if args.burn:
+        print_info("\n=== Step 5: Burning Subtitles Into Video ===")
+        burn_sub_path = None
+        if args.format in ["ass", "all"]:
+            burn_sub_path = os.path.join(args.output, f"{base_name}.ass")
+        elif args.format in ["srt", "all"]:
+            burn_sub_path = os.path.join(args.output, f"{base_name}.srt")
+        elif args.format in ["vtt", "all"]:
+            burn_sub_path = os.path.join(args.output, f"{base_name}.vtt")
+        elif args.format in ["json", "all"]:
+            print_warning("JSON format cannot be burned into video, skipping burn step")
+            burn_sub_path = None
+
+        if burn_sub_path:
+            video_ext = Path(args.input).suffix
+            burn_output = os.path.join(args.output, f"{base_name}_burned{video_ext}")
+            success = burn_subtitles_to_video(args.input, burn_sub_path, burn_output)
+            if success:
+                output_files.append(burn_output)
+            else:
+                print_warning("Subtitle burning failed, continuing with remaining steps")
+
+    # Step 6: Verify against original script if provided
     if args.script:
-        print_info("\n=== Step 5: Verifying Against Original Script ===")
+        print_info("\n=== Step 6: Verifying Against Original Script ===")
 
         if not validate_script_file(args.script):
             print_warning("Skipping verification due to invalid script file")

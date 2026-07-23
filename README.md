@@ -43,6 +43,9 @@ All models run 100% locally. No API keys, no tokens, no internet at runtime.
 git clone https://github.com/sb3x/VideoPolish-er.git
 cd VideoPolish-er
 
+# Install libcublas12 (required for CUDA/PyTorch)
+sudo apt install -y libcublas12
+
 # Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
@@ -78,6 +81,12 @@ python cli.py --input video.mp4 --remove-stutters
 
 ```bash
 python cli.py --input video.mp4 --remove-silence --remove-stutters
+```
+
+### Burn Subtitles Into Video
+
+```bash
+python cli.py --input video.mp4 --format ass --burn
 ```
 
 ### Custom Stutter Patterns
@@ -184,6 +193,7 @@ Stats saved to ./output/video_stats.json
 | `--verbose` | Enable verbose output | `false` |
 | `--script, -s` | Original script file for verification | `None` |
 | `--similarity-threshold` | Minimum similarity % for verification | `80.0` |
+| `--burn` | Burn subtitles into video using ffmpeg | `false` |
 
 ## Supported Models
 
