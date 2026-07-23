@@ -89,6 +89,22 @@ python cli.py --input video.mp4 --remove-silence --remove-stutters
 python cli.py --input video.mp4 --format ass --burn
 ```
 
+### Fix Grammar & Punctuation
+
+```bash
+# Rule-based fix (capitalizes "i", adds punctuation, etc.)
+python cli.py --input video.mp4 --fix-grammar
+
+# Use an LLM for grammar correction (Ollama by default)
+python cli.py --input video.mp4 --llm-fix
+
+# Use OpenAI API
+python cli.py --input video.mp4 --llm-fix --llm-url https://api.openai.com/v1 --llm-api-key sk-... --llm-model gpt-4o
+
+# Manual edit (opens file for you to edit, then continues)
+python cli.py --input video.mp4 --manual-edit
+```
+
 ### Custom Stutter Patterns
 
 ```bash
@@ -194,6 +210,12 @@ Stats saved to ./output/video_stats.json
 | `--script, -s` | Original script file for verification | `None` |
 | `--similarity-threshold` | Minimum similarity % for verification | `80.0` |
 | `--burn` | Burn subtitles into video using ffmpeg | `false` |
+| `--fix-grammar` | Fix grammar and punctuation (rule-based) | `false` |
+| `--llm-fix` | Use LLM API for grammar correction | `false` |
+| `--llm-url` | LLM API URL | `http://localhost:11434/v1` |
+| `--llm-api-key` | LLM API key | `""` |
+| `--llm-model` | LLM model name | `""` |
+| `--manual-edit` | Edit transcription in text editor before output | `false` |
 
 ## Supported Models
 
