@@ -81,7 +81,8 @@ def regenerate_subtitles(
     if not words:
         return "Error: Empty transcript.", [], "", ""
 
-    base_name = sanitize_filename_stem(Path(input_file).stem) if input_file else "subtitles"
+    input_path, input_stem = _resolve_input_file(input_file)
+    base_name = sanitize_filename_stem(input_stem or Path(input_path).stem) if input_path else "subtitles"
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -130,11 +131,11 @@ def regenerate_subtitles(
     except Exception as e:
         logs.append(f"Error generating output: {type(e).__name__}")
 
-    if burn_subtitles and input_file and os.path.exists(input_file) and burnable_sub_path:
-        video_ext = Path(input_file).suffix
+    if burn_subtitles and input_path and os.path.exists(input_path) and burnable_sub_path:
+        video_ext = Path(input_path).suffix
         burn_output = os.path.join(output_dir, f"{base_name}_burned{video_ext}")
         try:
-            success = burn_subtitles_to_video(input_file, burnable_sub_path, burn_output)
+            success = burn_subtitles_to_video(input_path, burnable_sub_path, burn_output)
             if success:
                 output_files.append(burn_output)
                 logs.append(f"Video with burned subtitles saved to {os.path.basename(burn_output)}")
@@ -153,14 +154,15 @@ def burn_only_subtitles(
     logs = []
     output_files = []
 
-    if not input_file or not os.path.exists(input_file):
+    input_path, input_stem = _resolve_input_file(input_file)
+    if not input_path or not os.path.exists(input_path):
         return "Error: No input video file found.", [], edited_text
 
     words = text_to_words(edited_text, words_state)
     if not words:
         return "Error: No words to burn. Edit the transcript first.", [], edited_text
 
-    base_name = sanitize_filename_stem(Path(input_file).stem)
+    base_name = sanitize_filename_stem(input_stem or Path(input_path).stem)
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -208,10 +210,10 @@ def burn_only_subtitles(
     if not burnable_sub_path or not os.path.exists(burnable_sub_path):
         return "Error: Failed to generate subtitle file.", [], edited_text
 
-    video_ext = Path(input_file).suffix
+    video_ext = Path(input_path).suffix
     burn_output = os.path.join(output_dir, f"{base_name}_burned{video_ext}")
     try:
-        success = burn_subtitles_to_video(input_file, burnable_sub_path, burn_output)
+        success = burn_subtitles_to_video(input_path, burnable_sub_path, burn_output)
         if success:
             output_files.append(burn_output)
             logs.append(f"Video with burned subtitles saved to {os.path.basename(burn_output)}")
@@ -226,6 +228,26 @@ def burn_only_subtitles(
 def sanitize_filename_stem(stem: str) -> str:
     """Remove characters from a filename stem that could cause path issues."""
     return re.sub(r'[^\w\-.]', '_', stem)[:128]
+
+
+def _resolve_input_file(input_file):
+    """Normalize a Gradio gr.File value into (file_path, original_stem).
+
+    Handles both the modern FileData API ('.path' / '.name' / '.orig_name')
+    and the legacy string / 'filepath' API. Returns (None, None) when absent.
+    """
+    if input_file is None:
+        return None, None
+    if isinstance(input_file, str):
+        file_path = input_file
+        orig_name = os.path.basename(input_file)
+    else:
+        file_path = getattr(input_file, "path", None) or getattr(input_file, "name", None)
+        orig_name = getattr(input_file, "orig_name", None)
+        if not orig_name and file_path:
+            orig_name = os.path.basename(file_path)
+    orig_stem = Path(orig_name).stem if orig_name else (Path(file_path).stem if file_path else None)
+    return file_path, orig_stem
 
 
 def validate_file(file_path: str, allowed_extensions: tuple) -> Optional[str]:
@@ -316,7 +338,10 @@ def _run_pipeline(
     # --- Validate inputs ---
     if input_file is None:
         return "Error: No input file provided.", [], "{}", "", [], ""
-    err = validate_file(input_file, SUPPORTED_AUDIO_EXTENSIONS)
+    input_path, input_stem = _resolve_input_file(input_file)
+    if not input_path:
+        return "Error: No input file provided.", [], "{}", "", [], ""
+    err = validate_file(input_path, SUPPORTED_AUDIO_EXTENSIONS)
     if err:
         return f"Error: {err}", [], "{}", "", [], ""
 
@@ -327,7 +352,7 @@ def _run_pipeline(
 
     progress(0.05, desc="Preparing output directory...")
 
-    base_name = sanitize_filename_stem(Path(input_file).stem)
+    base_name = sanitize_filename_stem(input_stem or Path(input_path).stem)
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
     ctx["output_dir"] = output_dir
@@ -352,7 +377,7 @@ def _run_pipeline(
     }
 
     stats = {
-        "input_file": os.path.basename(input_file),
+        "input_file": os.path.basename(input_path),
         "model": model_name,
         "language": language,
         "remove_silence": remove_silence,
@@ -365,7 +390,7 @@ def _run_pipeline(
     }
 
     start_time = time.time()
-    working_file = input_file
+    working_file = input_path
 
     # --- Step 1: Silence removal ---
     if remove_silence:
@@ -373,7 +398,7 @@ def _run_pipeline(
         log("=== Step 1: Removing Silence ===")
         try:
             success, silence_stats = remove_silence_from_audio(
-                input_file, silence_output,
+                input_path, silence_output,
                 float(silence_threshold), float(min_silence_duration),
             )
             if success:
@@ -489,10 +514,10 @@ def _run_pipeline(
             burn_sub_path = os.path.join(output_dir, f"{base_name}.vtt")
 
         if burn_sub_path:
-            video_ext = Path(input_file).suffix
+            video_ext = Path(input_path).suffix
             burn_output = os.path.join(output_dir, f"{base_name}_burned{video_ext}")
             try:
-                success = burn_subtitles_to_video(input_file, burn_sub_path, burn_output)
+                success = burn_subtitles_to_video(input_path, burn_sub_path, burn_output)
                 if success:
                     output_files.append(burn_output)
                     log(f"Video with burned subtitles saved to {os.path.basename(burn_output)}")
@@ -536,7 +561,7 @@ def _run_pipeline(
 
     # --- Summary ---
     log("\n=== Processing Complete ===")
-    log(f"Input: {os.path.basename(input_file)}")
+    log(f"Input: {os.path.basename(input_path)}")
     log(f"Model: {model_name}")
     log(f"Language: {language}")
     if stats["silence_stats"]:
@@ -577,7 +602,6 @@ def build_ui() -> gr.Blocks:
                 input_file = gr.File(
                     label="Input Audio/Video File",
                     file_types=["audio", "video"],
-                    type="filepath",
                 )
 
                 with gr.Accordion("Model Settings", open=True):
@@ -856,10 +880,15 @@ def build_ui() -> gr.Blocks:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="VideoPolish-er Web UI")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=7860, help="Port to listen on (default: 7860)")
+    args = parser.parse_args()
     app = build_ui()
     app.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
+        server_name=args.host,
+        server_port=args.port,
         share=False,
         show_error=True,
     )

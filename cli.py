@@ -10,7 +10,7 @@ import argparse
 import os
 import sys
 import subprocess
-import shlex
+import tempfile
 import time
 import json
 import re
@@ -368,8 +368,9 @@ def validate_input_file(file_path: str) -> bool:
         return False
 
     file_size_gb = os.path.getsize(real_path) / (1024**3)
-    if file_size_gb > 10:
-        print_error("File too large (>10GB).")
+    if file_size_gb > 2:
+        print_error("File too large (>2GB).")
+        print_info("Silence removal loads the whole file into RAM; keep inputs under 2GB.")
         return False
 
     supported_extensions = ['.mp4', '.wav', '.mp3', '.m4a', '.flac', '.ogg', '.mkv', '.avi', '.mov', '.webm']
@@ -755,6 +756,7 @@ def transcribe_audio(
             return []
     except Exception as e:
         print_error("Transcription failed.")
+        print_error(f"{type(e).__name__}: {e}")
         return []
 
 
@@ -1305,6 +1307,16 @@ def words_to_json(words: List[Dict], output_path: str, words_per_group: int = 3,
     print_success(f"JSON saved to {output_path} ({len(groups)} groups)")
 
 
+def escape_ffmpeg_filter_path(path: str) -> str:
+    """
+    Escape a file path for use inside an ffmpeg filter argument (e.g. subtitles=).
+
+    ffmpeg filter grammar requires backslashes, colons and quotes to be escaped
+    (unlike shell quoting). Windows drive letters like 'C:' become 'C\\:'.
+    """
+    return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
 def burn_subtitles_to_video(
     video_path: str,
     subtitle_path: str,
@@ -1318,8 +1330,8 @@ def burn_subtitles_to_video(
         print_error(f"Subtitle file not found: {subtitle_path}")
         return False
 
-    sub_path_quoted = shlex.quote(subtitle_path)
-    filter_str = f"subtitles={sub_path_quoted}"
+    sub_path_escaped = escape_ffmpeg_filter_path(subtitle_path)
+    filter_str = f"subtitles={sub_path_escaped}"
 
     cmd = [
         "ffmpeg", "-y",
@@ -1641,7 +1653,9 @@ def main():
     # Step 1: Remove silence if requested
     if args.remove_silence:
         print_info("\n=== Step 1: Removing Silence ===")
-        silence_output = os.path.join(args.output, "audio_no_silence.wav")
+        silence_output = tempfile.NamedTemporaryFile(
+            prefix="audio_no_silence_", suffix=".wav", dir=args.output, delete=False
+        ).name
         success, silence_stats = remove_silence_from_audio(
             args.input,
             silence_output,
